@@ -1,24 +1,4 @@
---cruinux CASM assembler. v3. updated last on 10/27/26
---next upd: add CASM instructions for managing RAM
-local fs = {
-    {
-        type = "f",
-        title = "main.casm",
-        cont = [=[
-start:
-load r1 = 5
-
-loop:
-sys print r1
-sub r1, r1, 1
-cmp r1, 0
-jnz loop
-end
-
-]=]
-    },
-}
-
+--cruinux CASM assembler. v4. updated last on 10/28/26
 local cpu = {
     reg = {
       r1=0,
@@ -39,6 +19,7 @@ local cpu = {
       r16=0,
     },
     pc = 1,
+    sp = 1,
     halted = false,
     callStack={},
     flags={
@@ -47,19 +28,51 @@ local cpu = {
      }
 }
 
+local memory = {
+    totalSize = 65536,
+    bytes = {},
+    schedSize = 8192,   -- 8 KiB 12.5%
+    stackSize = 16384,  -- 16 KiB 25%
+    programSize = 24576, -- 24 KiB 37.5%
+    heapSize = 16384,    -- 16 KiB 25%
+    -- Heap -> Program -> Stack -> Scheduler
+}
+
 local symbols = {}
 
+--loader
+local function loadCasm(filename)
+    assert(type(filename) == "string" and filename:match("^[%w_%-]+%.casm$"),"filesystem error: invalid CASM filename")
+    local source, err = love.filesystem.read(filename)
+    if not source then
+        error("filesystem error: could not load "..filename.. ": "..tostring(err))
+    end
+    return source
+end
+
 --helper functions
-local function getValue(token) 
-    local number = tonumber(token) 
-    if number ~= nil then 
-        return number 
-    end 
-    if token:match("^r%d+$") then 
-        return cpu.reg[token] or 0 
-    end 
-    error("assembler error: invalid value: " .. tostring(token)) 
-end 
+local function getValue(value)
+    if type(value) ~= "string" then
+        error("CPU error: expected a string, got " .. type(value))
+    end
+
+    if cpu.reg[value] ~= nil then
+        return cpu.reg[value]
+    end
+
+    local number = tonumber(value)
+
+    if number ~= nil then
+        return number
+    end
+
+    error("CPU error: invalid value: " .. value)
+end
+
+local function checkHeapAccess(address, size)
+    assert(type(address) == "number" and address % 1 == 0,"RAM error: address must be an integer")
+    assert(address >= 0 and address + size <= memory.heapSize, "RAM error: attempted access outside heap")
+end
 
 local UINT32_MAX = 4294967295
 
@@ -79,48 +92,27 @@ local function updateFlags(value)
 end
 
 --RAM :(
-local RAM_SIZE = 65536
-
-local memory = {
-    totalSize = RAM_SIZE,
-    bytes = {}
-}
 
 local function checkAddress(address, size)
     assert(type(address) == "number" and address % 1 == 0,"RAM error: address must be an integer")
     assert(address >= 0 and address + size <= memory.totalSize,"RAM error: address out of bounds")
 end
 
--- read one byte (0-255)
 local function read8(address)
-    checkAddress(address, 1)
+    checkHeapAccess(address, 1)
     return memory.bytes[address + 1] or 0
 end
 
--- write one byte (0-255)
 local function write8(address, value)
-    checkAddress(address, 1)
+    checkHeapAccess(address, 1)
     assert(type(value) == "number" and value % 1 == 0 and value >= 0 and value <= 255,"RAM error: byte must be an integer from 0 to 255")
     memory.bytes[address + 1] = value
-end
-
--- read a 16 bit #
-local function read16(address)
-    checkAddress(address, 2)
-    return read8(address) + read8(address + 1) * 256
-end
-
--- write a 16 bit #
-local function write16(address, value)
-    assert(type(value) == "number" and value % 1 == 0 and value >= 0 and value <= 65535, "RAM error: 16-bit value out of range")
-    checkAddress(address, 2)
-    write8(address, value % 256)
-    write8(address + 1, math.floor(value / 256))
 end
 
 -- read a 32 bit #
 local function read32(address)
     checkAddress(address, 4)
+    checkHeapAccess(address, 4)
     return read8(address)+ read8(address + 1) * 256 + read8(address + 2) * 65536 + read8(address + 3) * 16777216
 end
 
@@ -128,6 +120,7 @@ end
 local function write32(address, value)
     assert(type(value) == "number" and value % 1 == 0 and value >= 0 and value <= 4294967295, "RAM error: 32-bit value out of range")
     checkAddress(address, 4)
+    checkHeapAccess(address, 4)
     for i = 0, 3 do
         write8(address + i, value % 256)
         value = math.floor(value / 256)
@@ -135,15 +128,9 @@ local function write32(address, value)
 end
 
 --the casm executer
-local function executeCASM(file)
-    local content
-    for _, filename in ipairs(fs) do
-        if filename.title == file then
-            content = filename.cont
-            break
-        end
-    end
-
+local function inputCASM(file)    
+    symbols = {}
+    local content = loadCasm(file)
     if not content then
         print("assembler error: filename not found.")
         return
@@ -169,14 +156,24 @@ local function executeCASM(file)
 
     cpu.pc = 1
     cpu.halted = false
-    --let the fun begin
-    while not cpu.halted do
-        local instruction = rows[cpu.pc]
-        if not instruction then
-            error("CPU error: program counter out of bounds: " .. cpu.pc)
-        end
 
-local operation = instruction:match("^(%w+)")
+    local instructionCount = 0
+    local max = 10000
+
+while not cpu.halted do
+    instructionCount = instructionCount + 1
+
+    if instructionCount > max then
+        cpu.halted = true
+        error(
+            "CPU error: instruction limit exceeded ("..max.."). Possible infinite loop.")
+    end
+    local instruction = rows[cpu.pc]
+    if not instruction then
+        error("CPU error: program counter out of bounds: " .. cpu.pc)
+    end
+
+    local operation = instruction:match("^(%w+)")
         -- operations for later use
         -- ^(%w+) = operation name
         -- %s+ one or more spaces | (%w+) reg name
@@ -186,7 +183,11 @@ local operation = instruction:match("^(%w+)")
             print("assembler has completed successfully.")
             cpu.halted = true
         elseif operation == "load" then
-            local register, value = instruction:match("%s+(r%d+)%s*=%s*(%S+)$")
+            local register, value =
+            instruction:match("^load%s+(r%d+)%s*,%s*(%S+)%s*$")
+            if not register or not value then
+                error("assembler error: invalid load instruction: " .. instruction)
+            end
             cpu.reg[register] = getValue(value)
             cpu.pc = cpu.pc + 1
             checkRegisters()
@@ -285,12 +286,57 @@ local operation = instruction:match("^(%w+)")
             else
                 cpu.pc = cpu.pc + 1
             end
+        elseif operation == "read32" then
+            local address, register =
+            instruction:match("^read32%s+(%S+)%s*,%s*(r%d+)%s*$")
+            if not address or not register then
+                error("assembler error: invalid read32 instruction: " .. instruction)
+            end
+            address = getValue(address)
+            if cpu.reg[register] == nil then
+                error("CPU error: unknown register: " .. register)
+            end
+            cpu.reg[register] = read32(address)
+            cpu.pc = cpu.pc + 1
+            checkRegisters()
+            updateFlags(cpu.reg[register])
+        elseif operation == "write32" then
+            local addressText, valueText = instruction:match("^write32%s+(%d+),%s*(%S+)$")
+            if not addressText or not valueText then
+                error("assembler error: invalid write32 instruction")
+            end
+            local address = tonumber(addressText)
+            local value = getValue(valueText)
+            write32(address, value)
+            cpu.pc = cpu.pc + 1
+        elseif operation == "read8" then
+            local address, register = instruction:match("^read8%s+(%S+)%s*,%s*(r%d+)%s*$")
+            if not address or not register then
+                error("assembler error: invalid read8 instruction: " .. instruction)
+            end
+            address = getValue(address)
+            if cpu.reg[register] == nil then
+                error("CPU error: unknown register: " .. register)
+            end
+            cpu.reg[register] = read8(address)
+            cpu.pc = cpu.pc + 1
+            checkRegisters()
+            updateFlags(cpu.reg[register])
+        elseif operation == "write8" then
+            local addressText, valueText = instruction:match("^write8%s+(%d+),%s*(%S+)$")
+            if not addressText or not valueText then
+                error("assembler error: invalid write8 instruction")
+            end
+            local address = tonumber(addressText)
+            local value = getValue(valueText)
+            write8(address, value)
+            cpu.pc = cpu.pc + 1
         else
             error("assembler error: unknown operation: " .. tostring(operation))
+            cpu.pc = cpu.pc + 1
         end
     end
 end
 
---executeCASM("main.casm")
-write16(10,256)
-print(read16(10))
+inputCASM("main.casm")
+--inputCASM("check.casm")

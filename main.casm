@@ -1,0 +1,15 @@
+; load r1, 10      Load a value into a register     | add r1, r2, r3    Add two values
+; sub r1, r2, r3   Subtract right from left         | cmp r1, r2        Compare two values
+; read32 10, r1    Read 32-bit value from RAM       | write32 10, r1    Write 32-bit value to RAM
+; jmp label        Jump to a label                  | jz label          Jump if zero flag is set
+; jnz label        Jump if zero flag is not set     | call label        Call a function or label
+; ret              Return from a function           | sys print r1      Print a value or register
+; end              Stop program execution           | read8 10, r1      Reads a 8-bit value from RAM
+; write8 10,r1     Writes a 8-bit value to RAM      | ; comment
+
+start:
+  load r1, 10
+load r2, 20
+add r3, r2, r1
+sys print r3
+end
