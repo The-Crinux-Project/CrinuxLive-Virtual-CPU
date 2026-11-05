@@ -1,2 +1,2 @@
 # CrinuxLive-Virtual-CPU
-A entire virtual computer with a CPU, RAM, and a filesystem written in Lua with Love2D. In development, for now also includes a CASM -> Lua calls assembler. Next steps is to finish assembler, make it assemble into bytes, then make it in my lanquage outside of Lua once CASM is complete.
+A entire virtual computer with a CPU, RAM, and a filesystem written in Lua with Love2D. Pretty much ready for dev now. Assembler is still in Lua and I plan to update to move that part to a different repo and move the main assembler in my future language, so Lua is only used to simulate the CPU.
