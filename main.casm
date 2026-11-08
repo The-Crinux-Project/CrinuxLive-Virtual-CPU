@@ -1,7 +1,7 @@
 ;fibonacci sequence
-load r1, 0 ;first
-load r2, 1 ;second
-load r4, 0 ;counter
+load r1, 0
+load r2, 1
+load r4, 0
 
 loop:
   add r3, r1, r2
@@ -12,6 +12,6 @@ loop:
   add r2, r3, 0
 
   add r4, r4, 1
-  cmp r4, 15 ;how many times the loop runs
+  cmp r4, 15
   jf N, loop
 end

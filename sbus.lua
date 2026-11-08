@@ -6,6 +6,8 @@ sbus.calls = {
     gfx = 0x03,
     rand = 0x04,
     rand_seed = 0x05,
+    data = 0x06,
+    alloc = 0x07,
 }
 
 local randState = math.max(1, os.time() % 2147483646)
@@ -54,7 +56,7 @@ for _, name in ipairs({
     keywordNames[#keywordNames + 1] = name
 end
 for _, name in ipairs({
-    "pixel", "rect", "present",
+    "pixel", "rect", "present", "blit",
 }) do
     keywordNames[#keywordNames + 1] = name
 end
@@ -63,6 +65,12 @@ sbus.keywords = {}
 for index, name in ipairs(keywordNames) do
     sbus.keywords[name] = index
 end
+
+sbus.keywordNames = {}
+for index, name in ipairs(keywordNames) do
+    sbus.keywordNames[index] = name
+end
+sbus.keywordCount = #keywordNames
 
 sbus.inputQueue = {}
 
@@ -112,6 +120,37 @@ local function number(context, arg, fallback)
         return arg.value or 0
     end
     error("gfx takes numbers, got " .. describe(arg))
+end
+
+local function runAlloc(context)
+    local args = context.args or {}
+    local target = args[1]
+    if not target or target.kind ~= "register" then
+        error("sys alloc needs a register for the address, for example sys alloc r1 256")
+    end
+    local size = number(context, args[2], 0)
+    if type(size) ~= "number" or size <= 0 then
+        error("sys alloc needs a size above 0")
+    end
+    if not context.allocate then
+        error("this machine cannot allocate")
+    end
+    local address = context.allocate(size)
+    if not address then
+        error("sys alloc: no " .. size .. " bytes left in the heap")
+    end
+    context.setRegister(target.register, address)
+    return true
+end
+
+local function runData(context)
+    local args = context.args or {}
+    local target = args[1]
+    if not target or target.kind ~= "register" then
+        error("sys data needs a register to write, for example sys data r1")
+    end
+    context.setRegister(target.register, context.dataAddress or 0)
+    return true
 end
 
 local function runRand(context)
@@ -178,6 +217,34 @@ local function runGfx(context)
         return true
     end
 
+    if verbName == "blit" then
+        if not args[2] then
+            error("sys gfx blit needs an address: sys gfx blit r1 x y")
+        end
+        local address = number(context, args[2], 0)
+        if address <= 0 then
+            error("sys gfx blit needs a real address, got " .. tostring(address) ..
+                " (did you forget sys data r1?)")
+        end
+        local x = number(context, args[3], 0)
+        local y = number(context, args[4], 0)
+
+        local width = context.read32(address)
+        local height = context.read32(address + 4)
+        if not width or not height or width <= 0 or height <= 0 or width > 4096 or height > 4096 then
+            error("sys gfx blit: no picture at " .. address ..
+                " (width " .. tostring(width) .. ", height " .. tostring(height) .. ")")
+        end
+
+        local base = address + 8
+        gfx.blit(x, y, width, height, function(index)
+            return context.read8(base + index * 3),
+                context.read8(base + index * 3 + 1),
+                context.read8(base + index * 3 + 2)
+        end)
+        return true
+    end
+
     error("sys gfx does not know " .. verbName .. ", try clear, pixel, rect or present")
 end
 
@@ -193,7 +260,6 @@ local function runInput(context)
         error("sys input needs a mode, for example sys input down_listener key_w f1")
     end
 
-    -- print-style fallback: sys input r1 pops the old queue
     if verb.kind == "register" then
         local value = table.remove(sbus.inputQueue, 1)
         if value == nil then
@@ -320,6 +386,14 @@ function sbus.run(context)
 
     if context.call == sbus.calls.gfx then
         return runGfx(context)
+    end
+
+    if context.call == sbus.calls.data then
+        return runData(context)
+    end
+
+    if context.call == sbus.calls.alloc then
+        return runAlloc(context)
     end
 
     if context.call == sbus.calls.rand then

@@ -1,11 +1,10 @@
--- live_graphicsdriver.lua - lua driver, not metal
 local driver = {
     name = "love",
     width = 320,
     height = 180,
     scale = 1,
-    pixels = {},        -- back buffer, the vm draws here
-    shown = {},         -- front buffer, the display scans this
+    pixels = {},
+    shown = {},
     shownFill = 0,
     fill = 0,
     dirty = {},
@@ -83,6 +82,21 @@ function driver.rect(x, y, w, h, r, g, b)
     return true
 end
 
+function driver.blit(x, y, w, h, fetch)
+    if not w or not h or w <= 0 or h <= 0 then
+        return false
+    end
+    local index = 0
+    for row = 0, h - 1 do
+        for column = 0, w - 1 do
+            local r, g, b = fetch(index)
+            driver.pixel(x + column, y + row, r, g, b)
+            index = index + 1
+        end
+    end
+    return true
+end
+
 function driver.get(x, y)
     x = math.floor(x or 0)
     y = math.floor(y or 0)
@@ -96,35 +110,87 @@ function driver.get(x, y)
     return driver.pixels[index] or driver.fill
 end
 
--- page flip: the frame the vm just finished becomes the one on screen
 function driver.present()
     driver.painted = false
     driver.frames = driver.frames + 1
-    local back = driver.shown
-    for index in pairs(back) do
-        back[index] = nil
-    end
     driver.shown = driver.pixels
     driver.shownFill = driver.fill
-    driver.pixels = back
-    driver.fill = 0
+
     local nextDirty = driver.shownDirty
     driver.shownDirty = driver.dirty
     driver.dirty = nextDirty
     for tile in pairs(nextDirty) do
         nextDirty[tile] = nil
     end
+
     local nextContent = driver.shownContent
     driver.shownContent = driver.content
     driver.content = nextContent
     for tile in pairs(nextContent) do
         nextContent[tile] = nil
     end
+
     driver.committed = true
     return driver.frames
 end
 
--- vblank: push the tiles that changed and draw the front buffer
+local function viewport()
+    local winW = love.graphics.getWidth and love.graphics.getWidth() or 0
+    local winH = love.graphics.getHeight and love.graphics.getHeight() or 0
+    if winW <= 0 or winH <= 0 then
+        return nil
+    end
+
+    local scaleX, scaleY = winW / driver.width, winH / driver.height
+    if driver.scaling == "fill" then
+        return { scaleX = scaleX, scaleY = scaleY, offsetX = 0, offsetY = 0,
+            winW = winW, winH = winH, mode = "fill" }
+    end
+
+    local scale
+    if driver.scaling == "fit" then
+        scale = math.min(scaleX, scaleY)
+    else
+        scale = math.floor(math.min(scaleX, scaleY))
+        if scale < 1 then
+
+            scale = math.min(scaleX, scaleY)
+        end
+    end
+
+    return {
+        scaleX = scale,
+        scaleY = scale,
+        offsetX = math.floor((winW - driver.width * scale) / 2),
+        offsetY = math.floor((winH - driver.height * scale) / 2),
+        winW = winW,
+        winH = winH,
+        mode = driver.scaling or "integer",
+    }
+end
+
+driver.viewport = viewport
+
+function driver.setScaling(mode)
+    if mode ~= "integer" and mode ~= "fit" and mode ~= "fill" then
+        return false
+    end
+    driver.scaling = mode
+    return true
+end
+
+function driver.setFilter(kind)
+    kind = kind or "nearest"
+    if kind ~= "nearest" and kind ~= "linear" then
+        return false
+    end
+    driver.filter = kind
+    if driver.image and driver.image.setFilter then
+        driver.image:setFilter(kind, kind)
+    end
+    return true
+end
+
 function driver.flush()
     if driver.headless or not driver.image or not driver.committed then
         return driver.frames
@@ -174,21 +240,20 @@ function driver.flush()
         driver.image:replacePixels(driver.data)
     end
 
-    driver.scale = math.max(1, math.floor(math.min(width / driver.width, height / driver.height)))
-    local offsetX = math.floor((width - driver.width * driver.scale) / 2)
-    local offsetY = math.floor((height - driver.height * driver.scale) / 2)
-    love.graphics.draw(driver.image, offsetX, offsetY, 0, driver.scale, driver.scale)
+    local vp = viewport()
+    if not vp then
+        return driver.frames
+    end
+    driver.scale = vp.scaleX
+    driver.offsetX = vp.offsetX
+    driver.offsetY = vp.offsetY
+    love.graphics.draw(driver.image, vp.offsetX, vp.offsetY, 0, vp.scaleX, vp.scaleY)
     return driver.frames
 end
 
-function driver.attach(options)
-    options = options or {}
-    driver.width = options.width or driver.width
-    driver.height = options.height or driver.height
-    driver.tileColumns = math.ceil(driver.width / TILE)
-    driver.tileRows = math.ceil(driver.height / TILE)
+function driver.reset()
     driver.pixels = {}
-    driver.shown = {}
+    driver.shown = driver.pixels
     driver.dirty = {}
     driver.shownDirty = {}
     driver.content = {}
@@ -198,30 +263,80 @@ function driver.attach(options)
     driver.shownFill = 0
     driver.committed = false
     driver.painted = false
+    driver.frames = 0
+    if driver.data and driver.data.setPixel then
+        for y = 0, driver.height - 1 do
+            for x = 0, driver.width - 1 do
+                driver.data:setPixel(x, y, 0, 0, 0, 1)
+            end
+        end
+        if driver.image and driver.image.replacePixels then
+            driver.image:replacePixels(driver.data)
+        end
+    end
+    return true
+end
 
-    driver.width = math.floor(driver.width)
-    driver.height = math.floor(driver.height)
-    if driver.width < 8 or driver.height < 8 or driver.width > 640 or driver.height > 480 then
-        driver.width = 320
-        driver.height = 180
+function driver.setMode(width, height)
+    width = math.floor(tonumber(width) or 0)
+    height = math.floor(tonumber(height) or 0)
+    if width < 8 or height < 8 or width > 640 or height > 480 then
+        return false, "canvas must be between 8 and 640 wide and 8 and 480 high"
     end
 
+    driver.width = width
+    driver.height = height
+    driver.tileColumns = math.ceil(width / TILE)
+    driver.tileRows = math.ceil(height / TILE)
+    driver.pixels = {}
+    driver.shown = driver.pixels
+    driver.dirty = {}
+    driver.shownDirty = {}
+    driver.content = {}
+    driver.shownContent = {}
+    driver.fillOnGpu = {}
+    driver.fill = 0
+    driver.shownFill = 0
+    driver.committed = false
+    driver.painted = false
+    driver.frames = 0
+
     if hasScreen() then
-        local ok, made = pcall(love.image.newImageData, driver.width, driver.height)
+        local ok, made = pcall(love.image.newImageData, width, height)
         if ok then
             driver.data = made
             local madeImage, image = pcall(love.graphics.newImage, driver.data)
             if madeImage then
                 driver.image = image
                 if driver.image.setFilter then
-                    driver.image:setFilter("nearest", "nearest")
+                    local kind = driver.filter or "nearest"
+                    driver.image:setFilter(kind, kind)
                 end
             else
                 driver.error = tostring(image)
+                driver.image = nil
             end
         else
             driver.error = tostring(made)
+            driver.image = nil
         end
+    end
+
+    return true
+end
+
+function driver.attach(options)
+    options = options or {}
+    driver.scaling = options.scaling or driver.scaling or "integer"
+    driver.filter = options.filter or driver.filter or "nearest"
+
+    local ok, why = driver.setMode(options.width or driver.width, options.height or driver.height)
+    if not ok then
+        print("graphics: " .. tostring(why) .. ", using 320x180")
+        driver.setMode(320, 180)
+    end
+
+    if hasScreen() then
         driver.headless = driver.image == nil
         previousDraw = love.draw
         love.draw = function(...)

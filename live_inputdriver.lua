@@ -1,5 +1,3 @@
--- live_inputdriver.lua - lua driver, not metal
-
 local driver = {
     name = "love",
     attached = false,
