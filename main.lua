@@ -30,12 +30,10 @@ end
 --so so many helper funcstions
 function decimalToBinary(input)
     local result = ""
-
     for i = 8 - 1, 0, -1 do
         local bit = math.floor(input / (2 ^ i)) % 2
         result = result .. bit
     end
-
     return tostring(result)
 end
 
@@ -218,23 +216,24 @@ function assemble(casm)
     local startAdr = nil
     local adr = 0
 
-    for instruction in string.gmatch(casm, "[^;\n]+") do
-        instruction = string.gsub(instruction, "^%s*(.-)%s*$", "%1")
-        local label = string.match(instruction, "^(%w+):$")
+    for line in string.gmatch(casm, "[^\n]+") do
+        local instruction = line:match("^(.-);") or line
+        instruction = instruction:match("^%s*(.-)%s*$")
 
-        if label then
-            labels[label] = adr
-            if label == "START" then
-                startAdr = adr
+        if instruction ~= "" then
+            local label = string.match(instruction, "^(%w+):$")
+            if label then
+                labels[label] = adr
+                if label == "START" then
+                    startAdr = adr
+                end
+            else
+                table.insert(instructions, instruction)
+                amt = amt + 1
+                adr = adr + 4
             end
-            --output = output.."00000110"..decimalToBinary(adr).."0000000000000000 "
-        else
-            table.insert(instructions, instruction)
-            amt = amt + 1
-            adr = adr + 4
         end
     end
-
     for i = 1, amt do
         local current = instructions[i]
         local inst = string.match(current, "^(%S+)")
@@ -280,9 +279,6 @@ function assemble(casm)
         else
 
         end
-    end
-    for name, address in pairs(labels) do --temp
-        print(name, address)
     end
     return output, startAdr
 end
