@@ -1,39 +1,24 @@
-;   Fibonacci's sequence. There are no functions or conditionals yet, but it's a tradition so might as well.
-;   main.bin is just this but compiled.
+;   fibonacci's sequence
+;   main.bin is just this but compiled
 START:
-    MOV r1, 0
-    MOV r2, 1
-    SYS PRINT r1
-    SYS PRINT r2
-    ADD r3, r1, r2
-    SYS PRINT r3
-    CPY r1, r2
-    CPY r2, r3
-    ADD r3, r1, r2
-    SYS PRINT r3
-    CPY r1, r2
-    CPY r2, r3
-    ADD r3, r1, r2
-    SYS PRINT r3
-    CPY r1, r2
-    CPY r2, r3
-    ADD r3, r1, r2
-    SYS PRINT r3
-    CPY r1, r2
-    CPY r2, r3
-    ADD r3, r1, r2
-    SYS PRINT r3
-    CPY r1, r2
-    CPY r2, r3
-    ADD r3, r1, r2
-    SYS PRINT r3
-    CPY r1, r2
-    CPY r2, r3
-    ADD r3, r1, r2
-    SYS PRINT r3
-    CPY r1, r2
-    CPY r2, r3
-    ADD r3, r1, r2
-    SYS PRINT r3
-END
+MOV r0, 0
+MOV r1, 1
+MOV r2, 0
+MOV r3, 1
+MOV r4, 10
 
+LOOP:
+CMP r2, r4
+JZ DONE
+
+SYS PRINT r0
+
+ADD r5, r0, r1
+CPY r0, r1
+CPY r1, r5
+ADD r2, r2, r3
+
+JMP LOOP
+
+DONE:
+END

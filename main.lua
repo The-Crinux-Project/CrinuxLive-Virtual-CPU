@@ -193,6 +193,49 @@ function stepCpu(amt)
                 local target = binaryToDecimal(memRead((pc * 4) + 3))
                 pc = target
                 jumped = true
+            elseif instruct == 7 then
+                -- cmp
+                local status = binaryToDecimal(memRead((pc * 4) + 5))
+                local v1 = binaryToDecimal(memRead((pc * 4) + 3))
+                local v2 = binaryToDecimal(memRead((pc * 4) + 4))
+                local o
+                if status == 1 then
+                    o = reg[v1 + 1] - v2
+                elseif status == 2 then
+                    o = v1 - reg[v2 + 1]
+                else
+                    o = reg[v1 + 1] - reg[v2 + 1]
+                end
+                flags.z = (o == 0)
+                flags.n = (o < 0)
+            elseif instruct == 8 then
+                 --jz
+                local target = binaryToDecimal(memRead((pc * 4) + 3))
+                if flags.z == true then
+                    pc = target
+                    jumped = true
+                end
+            elseif instruct == 9 then
+                 --jzf
+                local target = binaryToDecimal(memRead((pc * 4) + 3))
+                if flags.z == false then
+                    pc = target
+                    jumped = true
+                end
+            elseif instruct == 10 then
+                 --jn
+                local target = binaryToDecimal(memRead((pc * 4) + 3))
+                if flags.n == true then
+                    pc = target
+                    jumped = true
+                end
+            elseif instruct == 11 then
+                 --jnf
+                local target = binaryToDecimal(memRead((pc * 4) + 3))
+                if flags.n == false then
+                    pc = target
+                    jumped = true
+                end
             elseif instruct == 255 then
                 print("program complete")
                 break
@@ -201,9 +244,6 @@ function stepCpu(amt)
             if not jumped then
                 pc = pc + 1
             end
-        else
-            print("program complete")
-            break
         end
     end
 end
@@ -273,7 +313,37 @@ function assemble(casm)
         elseif inst == "JMP" then
             local label = string.match(current, "^%S+%s+(%S+)")
             local target = labels[label]
-            output = output.."00000110"..decimalToBinary(target / 4).."0000000000000000"
+            output = output.."00000110"..decimalToBinary(target/4).."0000000000000000"
+        elseif inst == "CMP" then
+            local status = 0
+            local v1, v2= string.match(current, "^%S+%s+([^,%s]+)%s*,%s*(%S+)")
+            if v1:find("e", 1, true) then
+                status = 1
+            end
+            if v2:find("e", 1, true) then
+                if status == 1 then
+                    status = 3
+                else
+                    status = 2
+                end
+            end
+            output = output.."00000111"..decimalToBinary(string.gsub(v1, "r", ""))..decimalToBinary(string.gsub(v2, "r", ""))..decimalToBinary(status)
+        elseif inst == "JZ" then
+            local label = string.match(current, "^%S+%s+(%S+)")
+            local target = labels[label]
+            output = output.."00001000"..decimalToBinary(target/4).."0000000000000000"
+        elseif inst == "JZF" then
+            local label = string.match(current, "^%S+%s+(%S+)")
+            local target = labels[label]
+            output = output.."00001001"..decimalToBinary(target/4).."0000000000000000"
+        elseif inst == "JN" then
+            local label = string.match(current, "^%S+%s+(%S+)")
+            local target = labels[label]
+            output = output.."00001010"..decimalToBinary(target/4).."0000000000000000"
+        elseif inst == "JNF" then
+            local label = string.match(current, "^%S+%s+(%S+)")
+            local target = labels[label]
+            output = output.."00001011"..decimalToBinary(target/4).."0000000000000000"
         elseif inst == "END" then
             output = output .. "11111111000000000000000000000000"
         else
