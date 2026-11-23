@@ -1,7 +1,7 @@
 # CrinuxLive-Virtual-CPU
 A entire virtual computer with a CPU and RAM written in Lua using the AWESOME framework Love2D. NO AI!
 Currently main.lua includes a beta stage of the assembler and CPU and memory.
-main.casm is a template file in my WIP language for the Fibonacci sequence. Currently there are no functions or conditionals so it just prints everything manually.
+main.casm is a template file in my WIP language for the Fibonacci sequence. 
 Currently the ISA supports:
 MOV r1, 67 (set a register to a integer)
 CPY r2, r1 (set a register to a register)
