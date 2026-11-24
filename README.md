@@ -19,11 +19,14 @@ Currently the ISA supports:
 - JNF START (jump to a label IF negative flag is NOT raised)
 - CALL START (jmp, but treats it as a function and sets return adr)
 - RET (return from a function, set program counter to return adr + 1)
+- MLOAD r1,r2 (load a value (second argument) into a memory address (first argument))
+- MREAD r1,r2 (read a address (first argument) and put it into a register (r2))
+- Both MLOAD and MREAD support integers or registers for every argument except the second one on MREAD
 
 
 There are 16 registers that support 32 bit integers.
 
 Next update:
-Adding memory managment to the ISA
+I dont know its pretty close
 
 Also it uses the GNU General Public License to generally license the public
