@@ -9,7 +9,11 @@ function love.load()
     stepCpu(1000)
 end
 
+printsum = ""
+cpuVersion = 3
+--used for version check
 pc = 0
+returnAdr = nil
 reg = {}
 flags = {
     z = false,
@@ -31,6 +35,16 @@ end
 function decimalToBinary(input)
     local result = ""
     for i = 8 - 1, 0, -1 do
+        local bit = math.floor(input / (2 ^ i)) % 2
+        result = result .. bit
+    end
+    return tostring(result)
+end
+
+function decimalToBinary32(input)
+    input = input % 4294967296
+    local result = ""
+    for i = 32 - 1, 0, -1 do
         local bit = math.floor(input / (2 ^ i)) % 2
         result = result .. bit
     end
@@ -100,15 +114,14 @@ local nextFree = 1
 
 function loadBin(bin)
     bin = string.gsub(bin, "%s+", "")
-    local binLength = #bin / 32
-
+    local binLength = #bin / 64
     memWrite(nextFree, decimalToBinary(binLength))
     nextFree = nextFree + 1
 
-    for i = 1, #bin, 32 do
-        local instruction = string.sub(bin, i, i + 31)
+    for i = 1, #bin, 64 do
+        local instruction = string.sub(bin, i, i + 63)
 
-        for j = 0, 3 do
+        for j = 0, 7 do
             local byte = string.sub(instruction, j * 8 + 1, j * 8 + 8)
             memWrite(nextFree, byte)
             nextFree = nextFree + 1
@@ -117,15 +130,25 @@ function loadBin(bin)
 end
 
 function resetCpu()
-    pc = globalStartAdr / 4
+    pc = globalStartAdr / 8
     reg = {}
     flags = {
         z = false,
         n = false,
     }
+    returnAdr = nil
 
     for i = 1, 16 do
         table.insert(reg, 0)
+    end
+end
+
+function systemCall(call, a1)
+    if call == 0 then
+        -- print
+        a1 = reg[a1 + 1]
+        print(a1)
+    else
     end
 end
 
@@ -133,22 +156,27 @@ function stepCpu(amt)
     for i = 1, amt do
         local jumped = false
         if pc ~= binaryToDecimal(memory[1]) then
-            local adr = (pc * 4) + 2
+            local adr = (pc * 8) + 2
             local instruct = binaryToDecimal(memory[adr])
 
             if instruct == 1 then
                 -- mov r1, 100 (loads)
-                local regAddress = (pc * 4) + 3
-                local valAddress = (pc * 4) + 4
+                local regAddress = (pc * 8) + 3
+                local valAddress = (pc * 8) + 4
                 local registerNumber = binaryToDecimal(memRead(regAddress))
-                local value = binaryToDecimal(memRead(valAddress))
+                local value = binaryToDecimal(
+                    memRead(valAddress) ..
+                    memRead(valAddress + 1) ..
+                    memRead(valAddress + 2) ..
+                    memRead(valAddress + 3)
+                )
                 reg[registerNumber + 1] = toUnsigned32(value)
 
             elseif instruct == 2 then
                 -- add r1,r2,r3
-                local regAdr1 = (pc * 4) + 3
-                local regAdr2 = (pc * 4) + 4
-                local regAdr3 = (pc * 4) + 5
+                local regAdr1 = (pc * 8) + 3
+                local regAdr2 = (pc * 8) + 4
+                local regAdr3 = (pc * 8) + 5
                 local reg1 = binaryToDecimal(memRead(regAdr1))
                 local reg2 = binaryToDecimal(memRead(regAdr2))
                 local reg3 = binaryToDecimal(memRead(regAdr3))
@@ -159,9 +187,9 @@ function stepCpu(amt)
 
             elseif instruct == 3 then
                 -- sub r1,r2,r3
-                local regAdr1 = (pc * 4) + 3
-                local regAdr2 = (pc * 4) + 4
-                local regAdr3 = (pc * 4) + 5
+                local regAdr1 = (pc * 8) + 3
+                local regAdr2 = (pc * 8) + 4
+                local regAdr3 = (pc * 8) + 5
                 local reg1 = binaryToDecimal(memRead(regAdr1))
                 local reg2 = binaryToDecimal(memRead(regAdr2))
                 local reg3 = binaryToDecimal(memRead(regAdr3))
@@ -172,32 +200,32 @@ function stepCpu(amt)
 
             elseif instruct == 4 then
                 -- cpy r1, r2 (mov but register -> register)
-                local regAddress1 = (pc * 4) + 3
-                local regAddress2 = (pc * 4) + 4
+                local regAddress1 = (pc * 8) + 3
+                local regAddress2 = (pc * 8) + 4
                 local registerNumber1 = binaryToDecimal(memRead(regAddress1))
                 local registerNumber2 = binaryToDecimal(memRead(regAddress2))
                 reg[registerNumber1 + 1] = reg[registerNumber2 + 1]
 
             elseif instruct == 5 then
                 --sys calls
-                local call = binaryToDecimal(memRead((pc * 4) + 3))
-                local reg1 = binaryToDecimal(memRead((pc * 4) + 4))
-
-                if call == 1 then
-                    print(reg[reg1 + 1])
-                else
-
-                end
+                local call = binaryToDecimal(memRead((pc * 8) + 3))
+                local a1 = binaryToDecimal(memRead((pc * 8) + 4))
+                systemCall(call,a1)
             elseif instruct == 6 then
                 --jmp
-                local target = binaryToDecimal(memRead((pc * 4) + 3))
+                local target = binaryToDecimal(
+                    memRead((pc * 8) + 3) ..
+                    memRead((pc * 8) + 4) ..
+                    memRead((pc * 8) + 5) ..
+                    memRead((pc * 8) + 6)
+                )
                 pc = target
                 jumped = true
             elseif instruct == 7 then
                 -- cmp
-                local status = binaryToDecimal(memRead((pc * 4) + 5))
-                local v1 = binaryToDecimal(memRead((pc * 4) + 3))
-                local v2 = binaryToDecimal(memRead((pc * 4) + 4))
+                local status = binaryToDecimal(memRead((pc * 8) + 5))
+                local v1 = binaryToDecimal(memRead((pc * 8) + 3))
+                local v2 = binaryToDecimal(memRead((pc * 8) + 4))
                 local o
                 if status == 1 then
                     o = reg[v1 + 1] - v2
@@ -210,32 +238,68 @@ function stepCpu(amt)
                 flags.n = (o < 0)
             elseif instruct == 8 then
                  --jz
-                local target = binaryToDecimal(memRead((pc * 4) + 3))
+                local target = binaryToDecimal(
+                    memRead((pc * 8) + 3) ..
+                    memRead((pc * 8) + 4) ..
+                    memRead((pc * 8) + 5) ..
+                    memRead((pc * 8) + 6)
+                )
                 if flags.z == true then
                     pc = target
                     jumped = true
                 end
             elseif instruct == 9 then
                  --jzf
-                local target = binaryToDecimal(memRead((pc * 4) + 3))
+                local target = binaryToDecimal(
+                    memRead((pc * 8) + 3) ..
+                    memRead((pc * 8) + 4) ..
+                    memRead((pc * 8) + 5) ..
+                    memRead((pc * 8) + 6)
+                )
                 if flags.z == false then
                     pc = target
                     jumped = true
                 end
             elseif instruct == 10 then
                  --jn
-                local target = binaryToDecimal(memRead((pc * 4) + 3))
+                local target = binaryToDecimal(
+                    memRead((pc * 8) + 3) ..
+                    memRead((pc * 8) + 4) ..
+                    memRead((pc * 8) + 5) ..
+                    memRead((pc * 8) + 6)
+                )
                 if flags.n == true then
                     pc = target
                     jumped = true
                 end
             elseif instruct == 11 then
                  --jnf
-                local target = binaryToDecimal(memRead((pc * 4) + 3))
+                local target = binaryToDecimal(
+                    memRead((pc * 8) + 3) ..
+                    memRead((pc * 8) + 4) ..
+                    memRead((pc * 8) + 5) ..
+                    memRead((pc * 8) + 6)
+                )
                 if flags.n == false then
                     pc = target
                     jumped = true
                 end
+            elseif instruct == 12 then
+                --call
+                returnAdr = pc + 1
+                local target = binaryToDecimal(
+                    memRead((pc * 8) + 3) ..
+                    memRead((pc * 8) + 4) ..
+                    memRead((pc * 8) + 5) ..
+                    memRead((pc * 8) + 6)
+                )
+                pc = target
+                jumped = true
+            elseif instruct == 13 then
+                --ret
+                pc = returnAdr
+                returnAdr = 0
+                jumped = true
             elseif instruct == 255 then
                 print("program complete")
                 break
@@ -255,6 +319,7 @@ function assemble(casm)
     local labels = {}
     local startAdr = nil
     local adr = 0
+    
 
     for line in string.gmatch(casm, "[^\n]+") do
         local instruction = line:match("^(.-);") or line
@@ -270,7 +335,7 @@ function assemble(casm)
             else
                 table.insert(instructions, instruction)
                 amt = amt + 1
-                adr = adr + 4
+                adr = adr + 8
             end
         end
     end
@@ -282,38 +347,38 @@ function assemble(casm)
             local reg1, value1 = string.match(current, "^%S+%s+([^,%s]+)%s*,%s*(%S+)")
             reg1 = reg1:gsub("r", "")
             reg1 = decimalToBinary(reg1)
-            value1 = decimalToBinary(value1)
-            output = output .. "00000001" .. reg1 .. value1 .. "00000000"
+            value1 = decimalToBinary32(value1)
+            output = output .. "00000001" .. reg1 .. value1 .. "0000000000000000"
         elseif inst == "ADD" then
             local reg1, reg2, reg3 = string.match(current, "^%S+%s+([^,%s]+)%s*,%s*([^,%s]+)%s*,%s*(%S+)")
             reg1 = decimalToBinary(reg1:gsub("r", ""))
             reg2 = decimalToBinary(reg2:gsub("r", ""))
             reg3 = decimalToBinary(reg3:gsub("r", ""))
-            output = output .. "00000010" .. reg1 .. reg2 .. reg3
+            output = output .. "00000010" .. reg1 .. reg2 .. reg3 .. "00000000000000000000000000000000"
         elseif inst == "SUB" then
             local reg1, reg2, reg3 = string.match(current, "^%S+%s+([^,%s]+)%s*,%s*([^,%s]+)%s*,%s*(%S+)")
             reg1 = decimalToBinary(reg1:gsub("r", ""))
             reg2 = decimalToBinary(reg2:gsub("r", ""))
             reg3 = decimalToBinary(reg3:gsub("r", ""))
-            output = output .. "00000011" .. reg1 .. reg2 .. reg3
+            output = output .. "00000011" .. reg1 .. reg2 .. reg3 .. "000000000000000000000000000000000"
         elseif inst == "CPY" then
             local reg1, reg2 = string.match(current, "^%S+%s+([^,%s]+)%s*,%s*([^,%s]+)%s*")
             reg1 = decimalToBinary(reg1:gsub("r", ""))
             reg2 = decimalToBinary(reg2:gsub("r", ""))
-            output = output .. "00000100" .. reg1 .. reg2 .. "00000000"
+            output = output .. "00000100" .. reg1 .. reg2 .. "0000000000000000000000000000000000000000"
         elseif inst == "SYS" then
             local call = string.match(current, "^%S+%s+(%S+)")
             output = output .. "00000101"
             if call == "PRINT" then
                 local reg1 = string.match(current, "^%S+%s+%S+%s+(%S+)")
                 reg1 = decimalToBinary(reg1:gsub("r", ""))
-                output = output .. "00000001" .. reg1 .. "00000000"
+                output = output .. "00000000" .. reg1 .. "0000000000000000000000000000000000000000"
             else
             end
         elseif inst == "JMP" then
             local label = string.match(current, "^%S+%s+(%S+)")
             local target = labels[label]
-            output = output.."00000110"..decimalToBinary(target/4).."0000000000000000"
+            output = output.."00000110"..decimalToBinary32(target/8).."000000000000000000000000"
         elseif inst == "CMP" then
             local status = 0
             local v1, v2= string.match(current, "^%S+%s+([^,%s]+)%s*,%s*(%S+)")
@@ -327,27 +392,31 @@ function assemble(casm)
                     status = 2
                 end
             end
-            output = output.."00000111"..decimalToBinary(string.gsub(v1, "r", ""))..decimalToBinary(string.gsub(v2, "r", ""))..decimalToBinary(status)
+            output = output.."00000111"..decimalToBinary(string.gsub(v1, "r", ""))..decimalToBinary(string.gsub(v2, "r", ""))..decimalToBinary(status).."00000000000000000000000000000000"
         elseif inst == "JZ" then
             local label = string.match(current, "^%S+%s+(%S+)")
             local target = labels[label]
-            output = output.."00001000"..decimalToBinary(target/4).."0000000000000000"
+            output = output.."00001000"..decimalToBinary32(target/8).."000000000000000000000000"
         elseif inst == "JZF" then
             local label = string.match(current, "^%S+%s+(%S+)")
             local target = labels[label]
-            output = output.."00001001"..decimalToBinary(target/4).."0000000000000000"
+            output = output.."00001001"..decimalToBinary32(target/8).."000000000000000000000000"
         elseif inst == "JN" then
             local label = string.match(current, "^%S+%s+(%S+)")
             local target = labels[label]
-            output = output.."00001010"..decimalToBinary(target/4).."0000000000000000"
+            output = output.."00001010"..decimalToBinary32(target/8).."000000000000000000000000"
         elseif inst == "JNF" then
             local label = string.match(current, "^%S+%s+(%S+)")
             local target = labels[label]
-            output = output.."00001011"..decimalToBinary(target/4).."0000000000000000"
+            output = output.."00001011"..decimalToBinary32(target/8).."000000000000000000000000"
+        elseif inst == "CALL" then
+            local label = string.match(current, "^%S+%s+(%S+)")
+            local target = labels[label]
+            output = output.."00001100"..decimalToBinary32(target/8).."000000000000000000000000"
+        elseif inst == "RET" then
+            output = output.."0000110100000000000000000000000000000000000000000000000000000000"
         elseif inst == "END" then
-            output = output .. "11111111000000000000000000000000"
-        else
-
+            output = output .. "1111111100000000000000000000000000000000000000000000000000000000"
         end
     end
     return output, startAdr
