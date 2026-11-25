@@ -8,7 +8,9 @@ function love.load()
     resetCpu()
     stepCpu(1000)
 end
+
 pc = 0
+sp = 0
 returnAdr = nil
 reg = {}
 flags = {
@@ -26,6 +28,9 @@ memory = {}
 for i = 0, memSize - 1 do
     memory[i] = "00000000"
 end
+local stackBase = memSize - 1
+local lastAvMemory = memSize - 1
+
 --so so many helper funcstions
 function decimalToBinary(input)
     local result = ""
@@ -296,11 +301,67 @@ function stepCpu(amt)
                     value = reg[value + 1] % 256
                 end
                 memWrite(address, decimalToBinary(value))
-            elseif instruct == 255 then
+            elseif instruct == 16 then
+                -- pop
+                local regAddress = (pc * 8) + 3
+                local registerNumber = binaryToDecimal(memRead(regAddress))
+                if sp <= 0 then
+                    error("stack underflow")
+                end
+                local address = stackBase - (sp * 4) + 1
+
+                reg[registerNumber + 1] = binary32ToDecimal(memRead32(address))
+                sp = sp - 1
+            elseif instruct == 17 then
+                -- push
+                local regAddress = (pc * 8) + 3
+                local registerNumber = binaryToDecimal(memRead(regAddress))
+
+                if (sp + 1) * 4 > stackBase then
+                    error("Stack overflow")
+                end
+                sp = sp + 1
+                local binary = decimalToBinary32(reg[registerNumber + 1])
+                local address = stackBase - (sp * 4) + 1
+                for i = 0, 3 do
+                    memWrite(address + i, binary:sub(i * 8 + 1, i * 8 + 8))
+                end            elseif instruct == 255 then
                 print("program complete")
                 break
-            end
+            elseif instruct == 18 then
+                -- and
+                local regAdr1 = (pc * 8) + 3
+                local regAdr2 = (pc * 8) + 4
+                local regAdr3 = (pc * 8) + 5
+                local reg1 = binaryToDecimal(memRead(regAdr1))
+                local reg2 = binaryToDecimal(memRead(regAdr2))
+                local reg3 = binaryToDecimal(memRead(regAdr3))
+                reg[reg1 + 1] = reg[reg2 + 1] & reg[reg3 + 1]
+            elseif instruct == 19 then
+                -- not
+                local regAddress = (pc * 8) + 3
+                local registerNumber = binaryToDecimal(memRead(regAddress))
+                reg[registerNumber + 1] = ~reg[registerNumber + 1]
+            elseif instruct == 20 then
+                -- or
+                local regAdr1 = (pc * 8) + 3
+                local regAdr2 = (pc * 8) + 4
+                local regAdr3 = (pc * 8) + 5
+                local reg1 = binaryToDecimal(memRead(regAdr1))
+                local reg2 = binaryToDecimal(memRead(regAdr2))
+                local reg3 = binaryToDecimal(memRead(regAdr3))
+                reg[reg1 + 1] = reg[reg2 + 1] | reg[reg3 + 1]
 
+            elseif instruct == 21 then
+                -- xor
+                local regAdr1 = (pc * 8) + 3
+                local regAdr2 = (pc * 8) + 4
+                local regAdr3 = (pc * 8) + 5
+                local reg1 = binaryToDecimal(memRead(regAdr1))
+                local reg2 = binaryToDecimal(memRead(regAdr2))
+                local reg3 = binaryToDecimal(memRead(regAdr3))
+                reg[reg1 + 1] = reg[reg2 + 1] ~ reg[reg3 + 1]
+            end
             if not jumped then
                 pc = pc + 1
             end
@@ -455,9 +516,40 @@ function assemble(casm)
                     status = 2
                 end
             end
-
             output = output.. "00001111" ..decimalToBinary32(tonumber((v1:gsub("r", "")))).. decimalToBinary(tonumber((v2:gsub("r", ""))))..decimalToBinary(status).."00000000"
-
+        elseif inst == "POP" then
+            local reg1 = string.match(current, "^%S+%s+([^,%s]+)")
+            reg1 = reg1:gsub("r", "")
+            reg1 = decimalToBinary(tonumber(reg1))
+            output = output.."00010000"..reg1.."000000000000000000000000000000000000000000000000"
+        elseif inst == "PUSH" then
+            local reg1 = string.match(current, "^%S+%s+([^,%s]+)")
+            reg1 = reg1:gsub("r", "")
+            reg1 = decimalToBinary(tonumber(reg1))
+            output = output.."00010001"..reg1.."000000000000000000000000000000000000000000000000"
+        elseif inst == "AND" then
+            local reg1, reg2, reg3 = string.match(current, "^%S+%s+([^,%s]+)%s*,%s*([^,%s]+)%s*,%s*(%S+)")
+            reg1 = decimalToBinary(tonumber((reg1:gsub("r", ""))))
+            reg2 = decimalToBinary(tonumber((reg2:gsub("r", ""))))
+            reg3 = decimalToBinary(tonumber((reg3:gsub("r", ""))))
+            output = output .."00010010"..reg1..reg2..reg3.."00000000000000000000000000000000"
+        elseif inst == "NOT" then
+            local reg1 = string.match(current, "^%S+%s+([^,%s]+)")
+            reg1 = reg1:gsub("r", "")
+            reg1 = decimalToBinary(tonumber(reg1))
+            output = output.."00010011"..reg1.."000000000000000000000000000000000000000000000000"
+        elseif inst == "OR" then
+            local reg1, reg2, reg3 = string.match(current, "^%S+%s+([^,%s]+)%s*,%s*([^,%s]+)%s*,%s*(%S+)")
+            reg1 = decimalToBinary(tonumber((reg1:gsub("r", ""))))
+            reg2 = decimalToBinary(tonumber((reg2:gsub("r", ""))))
+            reg3 = decimalToBinary(tonumber((reg3:gsub("r", ""))))
+            output = output.."00010100"..reg1..reg2..reg3.."00000000000000000000000000000000"
+        elseif inst == "XOR" then
+            local reg1, reg2, reg3 = string.match(current, "^%S+%s+([^,%s]+)%s*,%s*([^,%s]+)%s*,%s*(%S+)")
+            reg1 = decimalToBinary(tonumber((reg1:gsub("r", ""))))
+            reg2 = decimalToBinary(tonumber((reg2:gsub("r", ""))))
+            reg3 = decimalToBinary(tonumber((reg3:gsub("r", ""))))
+            output = output.."00010101"..reg1..reg2..reg3.."00000000000000000000000000000000"
         elseif inst == "END" then
             output = output .. "1111111100000000000000000000000000000000000000000000000000000000"
         end

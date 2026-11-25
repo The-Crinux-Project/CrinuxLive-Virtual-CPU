@@ -1,7 +1,7 @@
 # CrinuxLive-Virtual-CPU
 A entire virtual computer with a CPU and RAM written in Lua using the AWESOME framework Love2D. NO AI!
-Currently main.lua includes a beta stage of the assembler and CPU and memory.
-main.casm is a template file in my WIP language for the Fibonacci sequence.
+Currently main.lua includes the assembler, and the CPU + memory. Next update will include a working version of a compiler for a low-level lanquage -> CASM. Eventually, once all 3 are done, they will be split into indiviual repos as I begin on my OS (that will be written in that low level lanquage).
+main.casm is a template file in CASM for the Fibonacci sequence.
 Currently the ISA supports:
 
 - MOV r1, 67 (set a register to a integer)
@@ -22,11 +22,13 @@ Currently the ISA supports:
 - MLOAD r1,r2 (load a value (second argument) into a memory address (first argument))
 - MREAD r1,r2 (read a address (first argument) and put it into a register (r2))
 - Both MLOAD and MREAD support integers or registers for every argument except the second one on MREAD
-
+- POP r1 (Pops the top entry off the stack and moves it into r1)
+- PUSH r1 (Pushes the data of r1 onto the stack)
+- AND r1,r2,r3 (Bitwise operation, r2 AND r3 = r1)
+- OR r1,r2,r3 (Bitwise operation, r2 OR r3 = r1)
+- XOR r1,r2,r3 (Bitwise operation, r2 XOR r3 = r1)
+- NOT r1 (Bitwise operation, r1 = NOT r1)
 
 There are 16 registers that support 32 bit integers.
-
-Next update:
-I dont know its pretty close
 
 Also it uses the GNU General Public License to generally license the public
