@@ -1,9 +1,8 @@
 function love.load()
     local casm = tostring(love.filesystem.read("main.casm"))
     local assembled, startAdr = assemble(casm)
-    print(assembled)
+    --print(assembled)
     globalStartAdr = startAdr
-    print("cpu:")
     loadBin(assembled, startAdr)
     resetCpu()
     stepCpu(1000)
@@ -13,6 +12,7 @@ pc = 0
 sp = 0
 returnAdr = nil
 reg = {}
+halted = true
 flags = {
     z = false,
     n = false,
@@ -23,11 +23,14 @@ for i = 1, 16 do
 end
 
 memSize = 65536
+ioBase = 100000
+ioMax = 110000
 memory = {}
 
-for i = 0, memSize - 1 do
+for i = 0, ioMax - 1 do
     memory[i] = "00000000"
 end
+
 local stackBase = memSize - 1
 local lastAvMemory = memSize - 1
 
@@ -123,12 +126,11 @@ end
 
 local nextFree = 1
 
-function loadBin(bin)
+function loadBin(bin,startAdr)
     bin = string.gsub(bin, "%s+", "")
     local binLength = #bin / 64
     memWrite(nextFree, decimalToBinary(binLength))
     nextFree = nextFree + 1
-
 
     for i = 1, #bin, 64 do
         local instruction = string.sub(bin, i, i + 63)
@@ -149,22 +151,47 @@ function resetCpu()
         n = false,
     }
     returnAdr = nil
+    halted = true
 
     for i = 1, 16 do
         table.insert(reg, 0)
     end
 end
 
-function systemCall(call, a1)
-    if call == 0 then
-        -- print
-        a1 = reg[a1 + 1]
-        print(a1)
-    else
+local printMass = {}
+table.insert(printMass,"")
+function tick()
+    -- io for adding integers
+    local io1 = binaryToDecimal(memRead(ioBase))
+    if io1 ~= 0 then
+        printMass[#printMass] = printMass[#printMass]..io1
+        memWrite(ioBase, decimalToBinary(0))
+    end
+    -- io for adding letters
+    local io2 = memRead(ioBase + 1)
+    if binaryToDecimal(io2) ~= 0 then
+        printMass[#printMass] = printMass[#printMass]..binaryToLetter(io2)
+        memWrite(ioBase + 1, decimalToBinary(0))
+    end
+    -- io for adding a new line
+    if binaryToDecimal(memRead(ioBase + 2)) ~= 0 then
+        table.insert(printMass,"")
+        memWrite(ioBase + 2, decimalToBinary(0))
+    end
+    -- io for sending print
+    if binaryToDecimal(memRead(ioBase + 3)) ~= 0 then
+        for i=1, #printMass do
+            print(printMass[i])
+        end
+        printMass = {}
+        table.insert(printMass,"")
+        memWrite(ioBase + 3, decimalToBinary(0))
     end
 end
 
+
 function stepCpu(amt)
+    halted = false
     for i = 1, amt do
         local jumped = false
         if pc ~= binaryToDecimal(memory[1]) then
@@ -214,10 +241,11 @@ function stepCpu(amt)
                 reg[registerNumber1 + 1] = reg[registerNumber2 + 1]
 
             elseif instruct == 5 then
-                --sys calls
-                local call = binaryToDecimal(memRead((pc * 8) + 3))
-                local a1 = binaryToDecimal(memRead((pc * 8) + 4))
-                systemCall(call,a1)
+                -- sys
+                returnAdr = pc + 1
+                local target = binaryToDecimal(memRead32((pc * 8) + 3))
+                pc = target
+                jumped = true
             elseif instruct == 6 then
                 --jmp
                 local value = binaryToDecimal(memRead32((pc * 8) + 3))
@@ -325,9 +353,7 @@ function stepCpu(amt)
                 local address = stackBase - (sp * 4) + 1
                 for i = 0, 3 do
                     memWrite(address + i, binary:sub(i * 8 + 1, i * 8 + 8))
-                end            elseif instruct == 255 then
-                print("program complete")
-                break
+                end
             elseif instruct == 18 then
                 -- and
                 local regAdr1 = (pc * 8) + 3
@@ -361,12 +387,16 @@ function stepCpu(amt)
                 local reg2 = binaryToDecimal(memRead(regAdr2))
                 local reg3 = binaryToDecimal(memRead(regAdr3))
                 reg[reg1 + 1] = reg[reg2 + 1] ~ reg[reg3 + 1]
+            elseif instruct == 255 then
+                break
             end
             if not jumped then
                 pc = pc + 1
             end
+            tick()
         end
     end
+    halted = true
 end
 
 
@@ -375,6 +405,7 @@ function assemble(casm)
     local output = ""
     local amt = 0
     local labels = {}
+    local syslabels = {}
     local startAdr = nil
     local adr = 0
 
@@ -383,9 +414,13 @@ function assemble(casm)
         instruction = instruction:match("^%s*(.-)%s*$")
 
         if instruction ~= "" then
-            local label = string.match(instruction, "^(%w+):$")
+            local label = string.match(instruction, "^([%w_]+):$")
             if label then
-                labels[label] = adr
+                if label:match("^SYS_") then
+                    syslabels[label:sub(5)] = adr
+                else
+                    labels[label] = adr
+                end
                 if label == "START" then
                     startAdr = adr
                 end
@@ -428,16 +463,10 @@ function assemble(casm)
             reg1 = decimalToBinary(tonumber((reg1:gsub("r", ""))))
             reg2 = decimalToBinary(tonumber((reg2:gsub("r", ""))))
             output = output .. "00000100" .. reg1 .. reg2 .. "0000000000000000000000000000000000000000"
-
         elseif inst == "SYS" then
-            local call = string.match(current, "^%S+%s+(%S+)")
-            output = output .. "00000101"
-            if call == "PRINT" then
-                local reg1 = string.match(current, "^%S+%s+%S+%s+(%S+)")
-                reg1 = decimalToBinary(tonumber((reg1:gsub("r", ""))))
-                output = output .. "00000000" .. reg1 .. "0000000000000000000000000000000000000000"
-            end
-
+            local label = string.match(current, "^%S+%s+(%S+)")
+            local target = syslabels[label]
+            output = output.."00000101"..decimalToBinary32(target / 8).."000000000000000000000000"
         elseif inst == "JMP" then
             local label = string.match(current, "^%S+%s+(%S+)")
             local target = labels[label]
@@ -458,9 +487,7 @@ function assemble(casm)
                     status = 2
                 end
             end
-
             output = output .. "00000111" .. decimalToBinary(tonumber((v1:gsub("r", "")))) .. decimalToBinary(tonumber((v2:gsub("r", "")))) .. decimalToBinary(status) .. "00000000000000000000000000000000"
-
         elseif inst == "JZ" then
             local label = string.match(current, "^%S+%s+(%S+)")
             local target = labels[label]
@@ -499,6 +526,10 @@ function assemble(casm)
             else
                 v1 = decimalToBinary32(tonumber(v1))
             end
+            if v1:match("^io%d+$") then
+                local index = tonumber(v1:match("^io(%d+)$"))
+                v1 = tostring(100000 + index - 1)
+            end
             reg1 = decimalToBinary(tonumber((reg1:gsub("r", ""))))
             output = output .. "00001110" .. v1 .. reg1 .. decimalToBinary(status) .. "00000000"
         elseif inst == "MLOAD" then
@@ -515,6 +546,10 @@ function assemble(casm)
                 else
                     status = 2
                 end
+            end
+            if v1:match("^io%d+$") then
+                local index = tonumber(v1:match("^io(%d+)$"))
+                v1 = tostring(100000 + index - 1)
             end
             output = output.. "00001111" ..decimalToBinary32(tonumber((v1:gsub("r", "")))).. decimalToBinary(tonumber((v2:gsub("r", ""))))..decimalToBinary(status).."00000000"
         elseif inst == "POP" then

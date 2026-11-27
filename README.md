@@ -7,11 +7,12 @@ Currently the ISA supports:
 - MOV r1, 67 (set a register to a integer)
 - CPY r2, r1 (set a register to a register)
 - START: (a label used for jumping and later functions. CPU runs START: label to run the program, starting code must be inside that.)
+- SYS_CALL: (a label used for system calls)
 - JMP START (jump up a label)
 - END (ends execution, also auto-ends at the end of a file)
 - ADD r3,r1,r2 (adds registers. in this case it adds r1 and r2 and outputs into r3)
 - SUB r3,r1,r2 (subs registers. in this case it subs r1 and r2 and outputs into r3)
-- SYS PRINT r1 (system call, currently only 1: PRINT. prints a register)
+- SYS CALL (CALL but for system calls)
 - CMP r1,0 (compares 2 integers or registers. value 1 - value 2 = output, if output is zero set zero flag, if negative raise negative flag)
 - JZ START (jump to a label IF zero flag is raised)
 - JZF START (jump to a label IF zero flag is NOT raised)
@@ -29,6 +30,10 @@ Currently the ISA supports:
 - XOR r1,r2,r3 (Bitwise operation, r2 XOR r3 = r1)
 - NOT r1 (Bitwise operation, r1 = NOT r1)
 
-There are 16 registers that support 32 bit integers.
+There are 16 registers that support 32 bit integers. Since system calls got reworked I added this realistic IO memory range.
+io1 is for 8-bit integers
+io2 is for 8-bit letters
+io3 is for new line
+io4 is for send and reset
 
 Also it uses the GNU General Public License to generally license the public

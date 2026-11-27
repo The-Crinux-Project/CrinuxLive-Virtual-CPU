@@ -1,5 +1,9 @@
+;   io1 is for 8-bit integers
+;   io2 is for 8-bit letters
+;   io3 is for new line
+;   io4 is for send and reset
 ;   fibonacci's sequence
-;   main.bin is just this but compiled
+;   main.bin is just this but assembled
 
 START:
     MOV r1, 0
@@ -7,7 +11,8 @@ START:
     MOV r3, 15
     MOV r5,1
 LOOP:
-    SYS PRINT r1
+    MLOAD io1,r1
+    MLOAD io4,1
     ADD r4, r1, r2
     CPY r1, r2
     CPY r2, r4
